@@ -520,5 +520,177 @@ class TestTextCleaning(unittest.TestCase):
         self.assertEqual(cleaned, "Hello world")
 
 
+class TestPrismCodeBlockExtraction(unittest.TestCase):
+    """Tests for Prism.js syntax-highlighted code block extraction."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        config = {
+            "name": "test",
+            "base_url": "https://example.com/",
+            "selectors": {"main_content": "article", "title": "h1", "code_blocks": "pre"},
+            "rate_limit": 0.1,
+            "max_pages": 10,
+        }
+        self.converter = DocToSkillConverter(config, dry_run=True)
+
+    def test_extract_prism_code_block_graphql(self):
+        """Test extracting code from a Prism.js highlighted block with div-per-line structure."""
+        html = """<pre class="prism-code language-graphql spectrum-Code css-sitddv">
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="1" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token keyword">type</span>
+                    <span class="token plain"> </span>
+                    <span class="token class-name">Query</span>
+                    <span class="token plain"> </span>
+                    <span class="token punctuation">{</span>
+                </span>
+            </div>
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="2" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token plain">  </span>
+                    <span class="token attr-name">something</span>
+                    <span class="token punctuation">:</span>
+                    <span class="token plain"> </span>
+                    <span class="token scalar">String</span>
+                </span>
+            </div>
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="3" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token punctuation">}</span>
+                </span>
+            </div>
+        </pre>"""
+        soup = BeautifulSoup(html, "html.parser")
+        pre_elem = soup.find("pre")
+        result = self.converter._extract_prism_code_text(pre_elem)
+        self.assertIn("type Query {", result)
+        self.assertIn("something: String", result)
+        self.assertIn("}", result)
+        # Should NOT contain line number pseudo-content
+        self.assertNotIn("1", result.split("\n")[0][:1] if result.startswith("1") else "")
+
+    def test_extract_prism_code_block_multiline(self):
+        """Test that Prism.js extraction preserves blank lines between code blocks."""
+        html = """<pre class="prism-code language-graphql css-sitddv">
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="1" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token keyword">type</span>
+                    <span class="token plain"> </span>
+                    <span class="token class-name">Query</span>
+                    <span class="token plain"> </span>
+                    <span class="token punctuation">{</span>
+                </span>
+            </div>
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="2" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token punctuation">}</span>
+                </span>
+            </div>
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="3" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token plain">
+</span>
+                </span>
+            </div>
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="4" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token keyword">type</span>
+                    <span class="token plain"> </span>
+                    <span class="token class-name">Mutation</span>
+                    <span class="token plain"> </span>
+                    <span class="token punctuation">{</span>
+                </span>
+            </div>
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="5" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token punctuation">}</span>
+                </span>
+            </div>
+        </pre>"""
+        soup = BeautifulSoup(html, "html.parser")
+        pre_elem = soup.find("pre")
+        result = self.converter._extract_prism_code_text(pre_elem)
+        lines = result.split("\n")
+        # Should have both type declarations separated by a blank line
+        self.assertIn("type Query {", result)
+        self.assertIn("type Mutation {", result)
+        # Verify multi-line structure is preserved (at least 4 non-empty lines)
+        non_empty_lines = [l for l in lines if l.strip()]
+        self.assertGreaterEqual(len(non_empty_lines), 4)
+
+    def test_prism_line_numbers_excluded(self):
+        """Test that data-pseudo-content spans (line numbers) are excluded from output."""
+        html = """<pre class="prism-code language-javascript css-abc123">
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="1" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token keyword">const</span>
+                    <span class="token plain"> x = 1;</span>
+                </span>
+            </div>
+            <div class="css-xgv4ep">
+                <span data-pseudo-content="2" class="css-1vd3195"></span>
+                <span class="token-line css-1exaq6k">
+                    <span class="token keyword">const</span>
+                    <span class="token plain"> y = 2;</span>
+                </span>
+            </div>
+        </pre>"""
+        soup = BeautifulSoup(html, "html.parser")
+        pre_elem = soup.find("pre")
+        result = self.converter._extract_prism_code_text(pre_elem)
+        lines = result.strip().split("\n")
+        # Lines should start with code content, not line numbers
+        self.assertTrue(lines[0].strip().startswith("const"))
+        self.assertTrue(lines[1].strip().startswith("const"))
+
+    def test_non_prism_code_block_unchanged(self):
+        """Test that regular (non-Prism) code blocks still use get_text() fallback."""
+        html = """<pre><code class="language-python">def hello():
+    print("world")</code></pre>"""
+        soup = BeautifulSoup(html, "html.parser")
+        code_elem = soup.find("code")
+        result = self.converter._extract_prism_code_text(code_elem)
+        self.assertIn("def hello():", result)
+        self.assertIn('print("world")', result)
+
+    def test_detect_language_from_prism_class(self):
+        """Test that language-graphql on a Prism pre tag returns 'graphql'."""
+        from skill_seekers.cli.language_detector import LanguageDetector
+
+        detector = LanguageDetector()
+        result = detector.extract_language_from_classes(
+            ["prism-code", "language-graphql", "spectrum-Code", "css-sitddv"]
+        )
+        self.assertEqual(result, "graphql")
+
+    def test_detect_language_unknown_language_trusted(self):
+        """Test that language- prefix is trusted even for languages not in KNOWN_LANGUAGES."""
+        from skill_seekers.cli.language_detector import LanguageDetector
+
+        detector = LanguageDetector()
+        # 'solidity' is unlikely to be in KNOWN_LANGUAGES
+        result = detector.extract_language_from_classes(["language-solidity", "some-other-class"])
+        self.assertEqual(result, "solidity")
+
+    def test_css_in_js_hashes_filtered(self):
+        """Test that CSS-in-JS hash classes (css-xxxxx) are not mistaken for languages."""
+        from skill_seekers.cli.language_detector import LanguageDetector
+
+        detector = LanguageDetector()
+        # Only CSS-in-JS hashes, no language classes
+        result = detector.extract_language_from_classes(["css-sitddv", "css-xgv4ep", "css-1vd3195"])
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     unittest.main()

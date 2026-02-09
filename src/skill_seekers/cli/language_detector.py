@@ -496,7 +496,21 @@ KNOWN_LANGUAGES = [
     "elixir",
     "julia",
     "gdscript",
+    "graphql",
+    "toml",
+    "dockerfile",
+    "makefile",
+    "protobuf",
+    "hcl",
+    "terraform",
+    "groovy",
+    "objective-c",
+    "objectivec",
+    "wasm",
 ]
+
+# Regex pattern to detect CSS-in-JS hash classes (e.g., css-sitddv, css-1exaq6k)
+_CSS_IN_JS_PATTERN = re.compile(r"^css-[a-z0-9]+$")
 
 
 class LanguageDetector:
@@ -626,10 +640,15 @@ class LanguageDetector:
         Extract language from CSS class list.
 
         Supports patterns:
-        - language-*  (e.g., language-python)
+        - language-*  (e.g., language-python, language-graphql)
         - lang-*      (e.g., lang-javascript)
         - brush: *    (e.g., brush: java)
         - Bare names  (e.g., python, java)
+
+        The language-* and lang-* prefixes are explicit author declarations
+        and are trusted without validation against KNOWN_LANGUAGES.
+        CSS-in-JS hash classes (e.g., css-sitddv) are filtered out to
+        avoid false positives.
 
         Args:
             classes: List of CSS class names
@@ -641,6 +660,10 @@ class LanguageDetector:
             return None
 
         for cls in classes:
+            # Skip CSS-in-JS hash classes (e.g., css-sitddv, css-1exaq6k)
+            if _CSS_IN_JS_PATTERN.match(cls):
+                continue
+
             # Handle brush: pattern
             if "brush:" in cls:
                 parts = cls.split("brush:")
@@ -649,19 +672,19 @@ class LanguageDetector:
                     if lang in KNOWN_LANGUAGES:
                         return lang
 
-            # Handle language- prefix
+            # Handle language- prefix (trusted: no KNOWN_LANGUAGES check)
             if cls.startswith("language-"):
                 lang = cls[9:].lower()
-                if lang in KNOWN_LANGUAGES:
+                if lang:
                     return lang
 
-            # Handle lang- prefix
+            # Handle lang- prefix (trusted: no KNOWN_LANGUAGES check)
             if cls.startswith("lang-"):
                 lang = cls[5:].lower()
-                if lang in KNOWN_LANGUAGES:
+                if lang:
                     return lang
 
-            # Handle bare class name
+            # Handle bare class name (requires KNOWN_LANGUAGES match)
             if cls.lower() in KNOWN_LANGUAGES:
                 return cls.lower()
 

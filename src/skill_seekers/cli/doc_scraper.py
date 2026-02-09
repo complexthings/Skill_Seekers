@@ -329,7 +329,7 @@ class DocToSkillConverter:
         # Extract code with language detection
         code_selector = selectors.get("code_blocks", "pre code")
         for code_elem in main.select(code_selector):
-            code = code_elem.get_text()
+            code = self._extract_prism_code_text(code_elem)
             if len(code.strip()) > 10:
                 # Try to detect language
                 lang = self.detect_language(code_elem, code)
@@ -522,7 +522,7 @@ class DocToSkillConverter:
 
             # Extract code blocks
             for code_elem in main.select("pre code, pre"):
-                code = code_elem.get_text()
+                code = self._extract_prism_code_text(code_elem)
                 if len(code.strip()) > 10:
                     lang = self.detect_language(code_elem, code)
                     page["code_samples"].append({"code": code.strip(), "language": lang})
@@ -536,6 +536,54 @@ class DocToSkillConverter:
             page["content"] = "\n\n".join(paragraphs)
 
         return page
+
+    def _extract_prism_code_text(self, elem) -> str:
+        """Extract clean text from a code block, with special handling for Prism.js.
+
+        Prism.js renders code as nested <div> elements (one per line), each containing
+        <span class="token ..."> elements for syntax highlighting. Line-number indicators
+        use <span data-pseudo-content="N"> and must be excluded.
+
+        Detection: Looks for 'prism-code' in the element's CSS classes.
+
+        Args:
+            elem: BeautifulSoup element for the code block
+
+        Returns:
+            Clean code text with proper line breaks
+        """
+        classes = elem.get("class", [])
+        if "prism-code" not in classes:
+            return elem.get_text()
+
+        lines = []
+        line_divs = elem.find_all("div", recursive=False)
+
+        if not line_divs:
+            # Prism-code class present but no div structure; fall back
+            return elem.get_text()
+
+        for div in line_divs:
+            line_text_parts = []
+            for span in div.find_all("span", recursive=True):
+                # Skip line-number pseudo-content spans
+                if span.has_attr("data-pseudo-content"):
+                    continue
+                # Only collect text from leaf spans (those with direct text content)
+                # to avoid double-counting from parent spans
+                if span.find("span"):
+                    continue
+                text = span.string or span.get_text()
+                if text:
+                    line_text_parts.append(text)
+
+            lines.append("".join(line_text_parts))
+
+        # Strip trailing empty lines but preserve internal blank lines
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        return "\n".join(lines)
 
     def detect_language(self, elem, code):
         """Detect programming language from code block
@@ -2123,6 +2171,13 @@ def get_configuration(args: argparse.Namespace) -> dict[str, Any]:
     # Get base configuration
     if args.config:
         config = load_config(args.config)
+        # Flatten unified config: merge first documentation source into top-level
+        # so that DocToSkillConverter can find base_url, selectors, etc.
+        if "sources" in config and config["sources"]:
+            source = config["sources"][0]
+            for key, value in source.items():
+                if key not in config:
+                    config[key] = value
     elif args.interactive or not (args.name and effective_url):
         config = interactive_config()
     else:

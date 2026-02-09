@@ -132,7 +132,7 @@ AGENT_PRESETS = {
     },
     "opencode": {
         "display_name": "OpenCode CLI",
-        "command": ["opencode"],
+        "command": ["opencode", "run"],
         "supports_skip_permissions": False,
     },
 }
@@ -235,6 +235,12 @@ class LocalSkillEnhancer:
             and "--dangerously-skip-permissions" not in cmd_parts
         ):
             cmd_parts.insert(1, "--dangerously-skip-permissions")
+
+        # Inject --model for opencode if OPENCODE_MODEL is set
+        if self.agent == "opencode" and "--model" not in cmd_parts:
+            model = os.environ.get("OPENCODE_MODEL")
+            if model:
+                cmd_parts.extend(["--model", model])
 
         uses_prompt_file = False
         for idx, arg in enumerate(cmd_parts):

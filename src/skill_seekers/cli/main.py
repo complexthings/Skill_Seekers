@@ -135,7 +135,6 @@ def _reconstruct_argv(command: str, args: argparse.Namespace) -> list[str]:
             "job_id",
             "skill_directory",
             "zip_file",
-            "config",
             "input_file",
         ]:
             if value is not None and value != "":
@@ -143,7 +142,12 @@ def _reconstruct_argv(command: str, args: argparse.Namespace) -> list[str]:
             continue
 
         # Handle flags and options
-        arg_name = f"--{key.replace('_', '-')}"
+        # Map dest names back to their original flag names where they differ
+        # (e.g., async is a Python reserved word, so dest="async_mode")
+        dest_to_flag = {
+            "async_mode": "--async",
+        }
+        arg_name = dest_to_flag.get(key, f"--{key.replace('_', '-')}")
 
         if isinstance(value, bool):
             if value:
